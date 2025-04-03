@@ -50,15 +50,22 @@ func main() {
 	}
 
 	bot.Handle(tele.OnCallback, onAnswer)
-	bot.Handle(tele.OnUserJoined, onJoin)
+	bot.Handle(tele.OnChatMember, onJoin)
 
 	bot.Start()
 }
 
 func onJoin(c tele.Context) error {
+	designButton := tele.InlineButton{Text: "design", Data: answerOk}
+	spamButton := tele.InlineButton{Text: "spam", Data: answerSpam}
+	markup := &tele.ReplyMarkup{
+		InlineKeyboard: [][]tele.InlineButton{
+			{designButton, spamButton},
+		},
+	}
 	//	todo add goroutine - if user is not answered after timeout - remove him
-	//todo send message with keyboard
-	return nil
+	// todo как ответить на это сообщение? проверить что текущее сообщение еще существует
+	return c.Send("Привет! Выбери, зачем пришел", markup)
 }
 
 func onAnswer(c tele.Context) error {
@@ -71,7 +78,7 @@ func onAnswer(c tele.Context) error {
 		if err := c.Respond(r); err != nil {
 			return fmt.Errorf("respond: %w", err)
 		}
-		if err := c.Bot().Ban(c.Chat(), &tele.ChatMember{User: c.Message().Sender}); err != nil {
+		if err := c.Bot().Ban(c.Chat(), &tele.ChatMember{User: c.Callback().Sender}); err != nil {
 			return fmt.Errorf("bot.Ban: %w", err)
 		}
 	case answerOk:
