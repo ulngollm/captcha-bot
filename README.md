@@ -1,7 +1,17 @@
-# Telegram Chat Bot
-This project is a simple Telegram chat bot built using the telebot library and a finite state machine (FSM) to manage conversation states. The bot is designed to handle a basic interaction flow with users, transitioning through different states based on user input.
+# Telegram Captcha Bot
+Этот бот отправляет новым участникам чата сообщение с кнопками и предлагает выбрать верный вариант ответа. 
+Если будет выбрана кнопка "Спам", бот выкинет участника из чата.
 
-## Features:
-- **State Management**: Utilizes a finite state machine to manage conversation states, allowing for a structured flow of interaction.
-- **Session Handling**: Manages user sessions to maintain state across interactions.
-- **Event Handling**: Responds to specific events to transition between states and handle user inputs.
+## Основные функции
+- Отправка приветственного сообщения новым участникам чата.
+- Предоставление кнопок для выбора цели участия в чате.
+- Удаление или бан участника, если выбран вариант "Спам".
+
+
+## Установка и запуск
+1. Добавить бота как администратора в группу, в которую нуно добавить проверку
+2. Создать файл `.env` и добавить в него `BOT_TOKEN`
+3. Запустить бота с помощью команды `go run main.go`
+
+## TODO
+- Добавить обработку таймаута для неответивших пользователей
