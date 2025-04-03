@@ -18,7 +18,7 @@ func init() {
 	}
 }
 
-const answerTimeout = 10 * time.Second
+const answerTimeout = 5 * time.Second
 
 const (
 	answerSpam = "yes"
@@ -56,6 +56,7 @@ func main() {
 }
 
 func onJoin(c tele.Context) error {
+	//only if user join. Exclude left
 	designButton := tele.InlineButton{Text: "design", Data: answerOk}
 	spamButton := tele.InlineButton{Text: "spam", Data: answerSpam}
 	markup := &tele.ReplyMarkup{
@@ -63,18 +64,31 @@ func onJoin(c tele.Context) error {
 			{designButton, spamButton},
 		},
 	}
-	//	todo add goroutine - if user is not answered after timeout - remove him
-	// todo как ответить на это сообщение? проверить что текущее сообщение еще существует
-	return c.Send("Привет! Выбери, зачем пришел", markup)
+
+	// Send the initial message with inline buttons
+	if err := c.Send(fmt.Sprintf("Привет, %s! Выбери, зачем пришел", c.Sender().FirstName), markup); err != nil {
+		return err
+	}
+
+	// Start a goroutine to handle the timeout
+	go func(member *tele.ChatMember) {
+		time.Sleep(answerTimeout)
+		// хак, как понять, что пользователь не ответил:
+		// если ответил - сообщение удалится. Если оно еще осталось - значит пользователь не ответил и будет забанен
+		// todo обработать кейсы, когда сообщение не удалилось по ошибке
+		// todo не банить пользователя, если он сам ушел
+		if err := c.Bot().Ban(c.Chat(), member); err != nil {
+			log.Printf("Failed to ban user after timeout: %v", err)
+		}
+	}(c.ChatMember().NewChatMember)
+
+	return nil
 }
 
 func onAnswer(c tele.Context) error {
 	switch c.Data() {
 	case answerSpam:
-		r := &tele.CallbackResponse{
-			CallbackID: c.Callback().ID,
-			Text:       "you are banned",
-		}
+		r := &tele.CallbackResponse{Text: "you are banned"}
 		if err := c.Respond(r); err != nil {
 			return fmt.Errorf("respond: %w", err)
 		}
@@ -82,10 +96,7 @@ func onAnswer(c tele.Context) error {
 			return fmt.Errorf("bot.Ban: %w", err)
 		}
 	case answerOk:
-		r := &tele.CallbackResponse{
-			CallbackID: c.Callback().ID,
-			Text:       "you are ok",
-		}
+		r := &tele.CallbackResponse{Text: "you are ok"}
 		if err := c.Respond(r); err != nil {
 			return fmt.Errorf("respond: %w", err)
 		}
