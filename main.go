@@ -56,7 +56,16 @@ func main() {
 }
 
 func onJoin(c tele.Context) error {
+	// technically it is available to kick user from channel. Avoid this
+	if c.Chat().Type != tele.ChatSuperGroup || c.Chat().Type != tele.ChatGroup {
+		return nil
+	}
 	//only if user join. Exclude left
+	if c.Update().ChatMember.NewChatMember.Role == tele.Kicked {
+		//todo снять бан
+		return nil
+	}
+
 	designButton := tele.InlineButton{Text: "design", Data: answerOk}
 	spamButton := tele.InlineButton{Text: "spam", Data: answerSpam}
 	markup := &tele.ReplyMarkup{
@@ -71,8 +80,18 @@ func onJoin(c tele.Context) error {
 	}
 
 	// Start a goroutine to handle the timeout
-	go func(member *tele.ChatMember) {
+	go func(c tele.Context) {
 		time.Sleep(answerTimeout)
+		//todo проверить, что пользователь еще состоит в чате
+		member := c.ChatMember().NewChatMember
+		m, err := c.Bot().ChatMemberOf(c.Chat(), member.User)
+		if err != nil {
+			return
+		}
+		if m.Role != tele.Member {
+			return
+		}
+
 		// хак, как понять, что пользователь не ответил:
 		// если ответил - сообщение удалится. Если оно еще осталось - значит пользователь не ответил и будет забанен
 		// todo обработать кейсы, когда сообщение не удалилось по ошибке
@@ -80,7 +99,7 @@ func onJoin(c tele.Context) error {
 		if err := c.Bot().Ban(c.Chat(), member); err != nil {
 			log.Printf("Failed to ban user after timeout: %v", err)
 		}
-	}(c.ChatMember().NewChatMember)
+	}(c)
 
 	return nil
 }
