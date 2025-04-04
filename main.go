@@ -18,7 +18,7 @@ func init() {
 	}
 }
 
-const answerTimeout = 10 * time.Second
+const answerTimeout = 30 * time.Second
 
 const (
 	answerSpam = "yes"
@@ -61,65 +61,70 @@ func onJoin(c tele.Context) error {
 		return nil
 	}
 	//only if user join. Exclude left
-	// также может быть restricted. Можно дать ему шанс ответить еще раз
-	newRole := c.Update().ChatMember.NewChatMember.Role
-	if newRole != tele.Member && newRole != tele.Restricted {
+	if !c.Update().ChatMember.NewChatMember.Member && c.Update().ChatMember.OldChatMember.Member {
 		return nil
 	}
-	oldRole := c.Update().ChatMember.OldChatMember.Role
+	//если пользователя просто ограничили - игнорим
+	if c.Update().ChatMember.NewChatMember.Role == tele.Restricted {
+		return nil
+	}
+
 	// этот же хендлер срабатывает, если с пользователя были сняты ограничения
 	// не присылать ничего в таком случае
+	newRole := c.Update().ChatMember.NewChatMember.Role
+	oldRole := c.Update().ChatMember.OldChatMember.Role
 	if newRole != tele.Member && oldRole != tele.Restricted {
 		return nil
 	}
 
-	designButton := tele.InlineButton{Text: "design", Data: answerOk}
-	spamButton := tele.InlineButton{Text: "spam", Data: answerSpam}
 	markup := &tele.ReplyMarkup{
 		InlineKeyboard: [][]tele.InlineButton{
-			{designButton, spamButton},
+			{
+				tele.InlineButton{Text: "design", Data: answerOk},
+				tele.InlineButton{Text: "spam", Data: answerSpam},
+			},
 		},
 	}
 
 	// use link to name tg://user?id=<user_id>
-	if err := c.Send(
+	msg, err := c.Bot().Send(
+		c.Chat(),
 		fmt.Sprintf(
 			"Привет, [%s](tg://user?id=%d)\\! Выбери, зачем пришел",
 			c.Sender().FirstName,
 			c.Sender().ID,
-		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup); err != nil {
+		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
+	if err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
 
-	// Start a goroutine to handle the timeout
-	go func(c tele.Context) {
-		time.Sleep(answerTimeout)
-		// проверить, что пользователь еще состоит в чате
-		// не банить пользователя, если он сам ушел
-		member := c.ChatMember().NewChatMember
-		m, err := c.Bot().ChatMemberOf(c.Chat(), member.User)
+	_ = time.AfterFunc(answerTimeout, func() {
+		b := c.Bot().(*tele.Bot)
+		// проверить, что пользователь еще состоит в чате. Не банить пользователя, если он сам ушел
+		member, err := b.ChatMemberOf(c.Chat(), c.ChatMember().Sender)
 		if err != nil {
-			return
+			b.OnError(fmt.Errorf("chatMemberOf: %w", err), c)
 		}
-		if m.Role != tele.Member {
+		if member.Role != tele.Member {
 			return
 		}
 
+		if err := b.Delete(msg); err != nil {
+			b.OnError(fmt.Errorf("afterFunc.delete: %w", err), c)
+			return
+		}
 		// хак, как понять, что пользователь не ответил:
 		// если ответил - сообщение удалится. Если оно еще осталось - значит пользователь не ответил и будет забанен
-		// todo обработать кейсы, когда сообщение не удалилось по ошибке
-		member.RestrictedUntil = time.Now().Add(1 * time.Hour).Unix() // в таком случае блочим только на час
-		if err := c.Bot().Restrict(c.Chat(), member); err != nil {
-			log.Printf("Failed to ban user after timeout: %v", err)
+		if err := b.Restrict(c.Chat(), member); err != nil {
+			b.OnError(fmt.Errorf("afterFunc.restrict: %w", err), c)
 		}
-		//	todo удалить сообщение. Для этого надо прокинуть id ?
-	}(c)
+	})
 
 	return nil
 }
 
 func onAnswer(c tele.Context) error {
-	//todo игнорить, если кнопку нажал другой пользователь
+	//игнорить, если кнопку нажал другой пользователь
 	userToAsk := c.Callback().Message.Entities[0].User.ID
 	if c.Callback().Sender.ID != userToAsk {
 		return c.Respond(&tele.CallbackResponse{Text: "Это не вам."})
