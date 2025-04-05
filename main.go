@@ -58,7 +58,7 @@ func main() {
 }
 
 func onJoin(c tele.Context) error {
-	msg, err := sendCheckMessage(c)
+	msg, err := sendCheckMessage(c, c.ChatMember().NewChatMember.User)
 	if err != nil {
 		return fmt.Errorf("sendCheckMessage: %w", err)
 	}
@@ -104,6 +104,7 @@ func onAnswer(c tele.Context) error {
 			return fmt.Errorf("respond: %w", err)
 		}
 		if err := c.Bot().Restrict(c.Chat(), &tele.ChatMember{User: c.Callback().Sender}); err != nil {
+			//todo bot.Restrict: telegram: Bad Request: method is available only for supergroups (400)
 			return fmt.Errorf("bot.Restrict: %w", err)
 		}
 	case answerOk:
@@ -119,13 +120,16 @@ func onAnswer(c tele.Context) error {
 }
 
 func info(c tele.Context) error {
-	if _, err := sendCheckMessage(c); err != nil {
+	if c.Chat().Type != tele.ChatPrivate {
+		return nil
+	}
+	if _, err := sendCheckMessage(c, c.Sender()); err != nil {
 		return fmt.Errorf("sendCheckMessage: %w", err)
 	}
 	return c.Send("Это сообщение отправлено ознакомительно")
 }
 
-func sendCheckMessage(c tele.Context) (*tele.Message, error) {
+func sendCheckMessage(c tele.Context, user *tele.User) (*tele.Message, error) {
 	markup := &tele.ReplyMarkup{
 		InlineKeyboard: [][]tele.InlineButton{
 			{
@@ -140,8 +144,8 @@ func sendCheckMessage(c tele.Context) (*tele.Message, error) {
 		c.Chat(),
 		fmt.Sprintf(
 			"Привет, [%s](tg://user?id=%d)\\! Выбери, зачем пришел",
-			c.ChatMember().NewChatMember.User.FirstName,
-			c.ChatMember().NewChatMember.User.ID,
+			user.FirstName,
+			user.ID,
 		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
 	if err != nil {
 		return &tele.Message{}, fmt.Errorf("send: %w", err)
