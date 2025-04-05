@@ -52,34 +52,12 @@ func main() {
 	bot.Handle("/start", info)
 
 	bot.Handle(tele.OnCallback, onAnswer)
-	bot.Handle(tele.OnChatMember, onJoin)
+	bot.Handle(tele.OnChatMember, onJoin, CheckJoin)
 
 	bot.Start()
 }
 
 func onJoin(c tele.Context) error {
-	// technically it is available to kick user from channel. Avoid this
-	//todo extract to middleware
-	if c.Chat().Type != tele.ChatSuperGroup && c.Chat().Type != tele.ChatGroup {
-		return nil
-	}
-	//only if user join. Exclude left
-	if !c.Update().ChatMember.NewChatMember.Member && c.Update().ChatMember.OldChatMember.Member {
-		return nil
-	}
-	//если пользователя просто ограничили - игнорим
-	if c.Update().ChatMember.NewChatMember.Role == tele.Restricted {
-		return nil
-	}
-
-	// этот же хендлер срабатывает, если с пользователя были сняты ограничения
-	// не присылать ничего в таком случае
-	newRole := c.Update().ChatMember.NewChatMember.Role
-	oldRole := c.Update().ChatMember.OldChatMember.Role
-	if newRole != tele.Member && oldRole != tele.Restricted {
-		return nil
-	}
-
 	msg, err := sendCheckMessage(c)
 	if err != nil {
 		return fmt.Errorf("sendCheckMessage: %w", err)
@@ -118,6 +96,7 @@ func onAnswer(c tele.Context) error {
 	if c.Callback().Sender.ID != userToAsk {
 		return c.Respond(&tele.CallbackResponse{Text: "Это не вам."})
 	}
+
 	switch c.Data() {
 	case answerSpam:
 		r := &tele.CallbackResponse{Text: "you are banned"}
@@ -161,11 +140,40 @@ func sendCheckMessage(c tele.Context) (*tele.Message, error) {
 		c.Chat(),
 		fmt.Sprintf(
 			"Привет, [%s](tg://user?id=%d)\\! Выбери, зачем пришел",
-			c.Sender().FirstName,
-			c.Sender().ID,
+			c.ChatMember().NewChatMember.User.FirstName,
+			c.ChatMember().NewChatMember.User.ID,
 		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
 	if err != nil {
 		return &tele.Message{}, fmt.Errorf("send: %w", err)
 	}
 	return msg, nil
+}
+
+func CheckJoin(next tele.HandlerFunc) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		// technically it is available to kick user from channel. Avoid this
+		if c.Chat().Type != tele.ChatSuperGroup && c.Chat().Type != tele.ChatGroup {
+			return nil
+		}
+		//only if user join. Exclude left
+		if c.ChatMember().OldChatMember.Member {
+			return nil
+		}
+		//don't send message if user is already restricted ??
+		if c.ChatMember().NewChatMember.Role == tele.Restricted {
+			return nil
+		}
+		//ignore if user added by admin
+		admins, err := c.Bot().AdminsOf(c.Chat())
+		if err != nil {
+			return fmt.Errorf("adminsOf: %w", err)
+		}
+		for _, admin := range admins {
+			if c.ChatMember().Sender.ID == admin.User.ID {
+				return nil
+			}
+		}
+		//todo обработка ботов
+		return next(c)
+	}
 }
