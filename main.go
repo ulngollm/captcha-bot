@@ -49,6 +49,8 @@ func main() {
 		return
 	}
 
+	bot.Handle("/start", info)
+
 	bot.Handle(tele.OnCallback, onAnswer)
 	bot.Handle(tele.OnChatMember, onJoin)
 
@@ -57,6 +59,7 @@ func main() {
 
 func onJoin(c tele.Context) error {
 	// technically it is available to kick user from channel. Avoid this
+	//todo extract to middleware
 	if c.Chat().Type != tele.ChatSuperGroup && c.Chat().Type != tele.ChatGroup {
 		return nil
 	}
@@ -77,25 +80,9 @@ func onJoin(c tele.Context) error {
 		return nil
 	}
 
-	markup := &tele.ReplyMarkup{
-		InlineKeyboard: [][]tele.InlineButton{
-			{
-				tele.InlineButton{Text: "design", Data: answerOk},
-				tele.InlineButton{Text: "spam", Data: answerSpam},
-			},
-		},
-	}
-
-	// use link to name tg://user?id=<user_id>
-	msg, err := c.Bot().Send(
-		c.Chat(),
-		fmt.Sprintf(
-			"Привет, [%s](tg://user?id=%d)\\! Выбери, зачем пришел",
-			c.Sender().FirstName,
-			c.Sender().ID,
-		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
+	msg, err := sendCheckMessage(c)
 	if err != nil {
-		return fmt.Errorf("send: %w", err)
+		return fmt.Errorf("sendCheckMessage: %w", err)
 	}
 
 	_ = time.AfterFunc(answerTimeout, func() {
@@ -148,4 +135,35 @@ func onAnswer(c tele.Context) error {
 		return fmt.Errorf("delete: %w", err)
 	}
 	return nil
+}
+
+func info(c tele.Context) error {
+	if _, err := sendCheckMessage(c); err != nil {
+		return fmt.Errorf("sendCheckMessage: %w", err)
+	}
+	return c.Send("Это сообщение отправлено ознакомительно")
+}
+
+func sendCheckMessage(c tele.Context) (*tele.Message, error) {
+	markup := &tele.ReplyMarkup{
+		InlineKeyboard: [][]tele.InlineButton{
+			{
+				tele.InlineButton{Text: "design", Data: answerOk},
+				tele.InlineButton{Text: "spam", Data: answerSpam},
+			},
+		},
+	}
+
+	// use link to name tg://user?id=<user_id>
+	msg, err := c.Bot().Send(
+		c.Chat(),
+		fmt.Sprintf(
+			"Привет, [%s](tg://user?id=%d)\\! Выбери, зачем пришел",
+			c.Sender().FirstName,
+			c.Sender().ID,
+		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
+	if err != nil {
+		return &tele.Message{}, fmt.Errorf("send: %w", err)
+	}
+	return msg, nil
 }
