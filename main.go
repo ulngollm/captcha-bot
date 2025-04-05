@@ -87,8 +87,16 @@ func onJoin(c tele.Context) error {
 
 	_ = time.AfterFunc(answerTimeout, func() {
 		b := c.Bot().(*tele.Bot)
+		// хак, как понять, что пользователь не ответил:
+		// если ответил - сообщение удалится и при удалении будет ошибка
+		//Если оно еще осталось - значит пользователь не ответил и будет заблочен
+		if err := b.Delete(msg); err != nil {
+			b.OnError(fmt.Errorf("afterFunc.delete: %w", err), c)
+			return
+		}
+
 		// проверить, что пользователь еще состоит в чате. Не банить пользователя, если он сам ушел
-		member, err := b.ChatMemberOf(c.Chat(), c.ChatMember().Sender)
+		member, err := b.ChatMemberOf(c.Chat(), c.ChatMember().NewChatMember.User) // sender - это не обязательно тот кто вступил. Смотреть надо именно мембера
 		if err != nil {
 			b.OnError(fmt.Errorf("chatMemberOf: %w", err), c)
 		}
@@ -96,12 +104,6 @@ func onJoin(c tele.Context) error {
 			return
 		}
 
-		if err := b.Delete(msg); err != nil {
-			b.OnError(fmt.Errorf("afterFunc.delete: %w", err), c)
-			return
-		}
-		// хак, как понять, что пользователь не ответил:
-		// если ответил - сообщение удалится. Если оно еще осталось - значит пользователь не ответил и будет забанен
 		if err := b.Restrict(c.Chat(), member); err != nil {
 			b.OnError(fmt.Errorf("afterFunc.restrict: %w", err), c)
 		}
