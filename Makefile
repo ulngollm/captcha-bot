@@ -9,4 +9,4 @@ start:
 deploy:
 	ssh ${SERVER} "mkdir -p ${DEPLOY_DIR}"
 	scp bot ${SERVER}:${DEPLOY_DIR}
-	scp .env ${SERVER}:${DEPLOY_DIR}
+	scp .env.prod ${SERVER}:${DEPLOY_DIR}/.env
