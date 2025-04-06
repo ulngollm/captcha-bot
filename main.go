@@ -1,6 +1,7 @@
 package main
 
 import (
+	"captcha-bot/middleware"
 	"fmt"
 	"log"
 	"os"
@@ -11,15 +12,7 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-func init() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("godotenv.Load: %s", err)
-		return
-	}
-}
-
-const answerTimeout = 30 * time.Second
+const answerTimeoutSec = 30
 
 const (
 	answerSpam = "yes"
@@ -27,6 +20,14 @@ const (
 )
 
 var waitList Waitlist
+
+func init() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("godotenv.Load: %s", err)
+		return
+	}
+}
 
 func main() {
 	t, ok := os.LookupEnv("BOT_TOKEN")
@@ -53,9 +54,8 @@ func main() {
 	}
 
 	bot.Handle("/start", info)
-
-	bot.Handle(tele.OnCallback, onAnswer)
-	bot.Handle(tele.OnChatMember, onJoin, CheckJoin)
+	bot.Handle(tele.OnCallback, onAnswer, middleware.IgnoreOtherUsersClick)
+	bot.Handle(tele.OnChatMember, onJoin, middleware.CheckJoin)
 	bot.Handle(tele.OnText, removeNotApprovedMessages)
 
 	sendStartupMessage(ok, err, bot)
@@ -96,7 +96,7 @@ func onJoin(c tele.Context) error {
 	}
 	waitList.AddToList(c.ChatMember().NewChatMember.User.ID)
 
-	_ = time.AfterFunc(answerTimeout, func() {
+	_ = time.AfterFunc(answerTimeoutSec*time.Second, func() {
 		b := c.Bot().(*tele.Bot)
 		// хак, как понять, что пользователь не ответил:
 		// если ответил - сообщение удалится и при удалении будет ошибка
@@ -125,15 +125,9 @@ func onJoin(c tele.Context) error {
 }
 
 func onAnswer(c tele.Context) error {
-	//игнорить, если кнопку нажал другой пользователь
-	userToAsk := c.Callback().Message.Entities[0].User.ID
-	if c.Callback().Sender.ID != userToAsk {
-		return c.Respond(&tele.CallbackResponse{Text: "Это не вам."})
-	}
-
 	switch c.Data() {
 	case answerSpam:
-		r := &tele.CallbackResponse{Text: "you are banned"}
+		r := &tele.CallbackResponse{Text: "you are banned", ShowAlert: true}
 		if err := c.Respond(r); err != nil {
 			return fmt.Errorf("respond: %w", err)
 		}
@@ -142,12 +136,12 @@ func onAnswer(c tele.Context) error {
 			return fmt.Errorf("bot.Restrict: %w", err)
 		}
 	case answerOk:
-		r := &tele.CallbackResponse{Text: "you are ok"}
+		r := &tele.CallbackResponse{Text: "you are ok", ShowAlert: true}
 		if err := c.Respond(r); err != nil {
 			return fmt.Errorf("respond: %w", err)
 		}
 	}
-	waitList.RemoveFromList(userToAsk)
+	waitList.RemoveFromList(c.Callback().Sender.ID)
 	if err := c.Delete(); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
@@ -165,6 +159,7 @@ func info(c tele.Context) error {
 }
 
 func sendCheckMessage(c tele.Context, user *tele.User) (*tele.Message, error) {
+	//todo build by config
 	markup := &tele.ReplyMarkup{
 		InlineKeyboard: [][]tele.InlineButton{
 			{
@@ -175,44 +170,16 @@ func sendCheckMessage(c tele.Context, user *tele.User) (*tele.Message, error) {
 	}
 
 	// use link to name tg://user?id=<user_id>
-	msg, err := c.Bot().Send(
-		c.Chat(),
-		fmt.Sprintf(
-			"Привет, [%s](tg://user?id=%d)\\! Выбери, зачем пришел",
-			user.FirstName,
-			user.ID,
-		), &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
+	txt := fmt.Sprintf(
+		"Привет, [%s](tg://user?id=%d)\\! Выбери кнопку\\.\\\n"+
+			"У тебя есть %d секунд на ответ\\. Если не ответишь, отправка сообщений будет ограничена",
+		user.FirstName,
+		user.ID,
+		answerTimeoutSec,
+	)
+	msg, err := c.Bot().Send(c.Chat(), txt, &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}, markup)
 	if err != nil {
 		return &tele.Message{}, fmt.Errorf("send: %w", err)
 	}
 	return msg, nil
-}
-
-func CheckJoin(next tele.HandlerFunc) tele.HandlerFunc {
-	return func(c tele.Context) error {
-		// technically it is available to kick user from channel. Avoid this
-		if c.Chat().Type != tele.ChatSuperGroup && c.Chat().Type != tele.ChatGroup {
-			return nil
-		}
-		//only if user join. Exclude left
-		if c.ChatMember().OldChatMember.Member {
-			return nil
-		}
-		//don't send message if user is already restricted ??
-		if c.ChatMember().NewChatMember.Role == tele.Restricted {
-			return nil
-		}
-		//ignore if user added by admin
-		admins, err := c.Bot().AdminsOf(c.Chat())
-		if err != nil {
-			return fmt.Errorf("adminsOf: %w", err)
-		}
-		for _, admin := range admins {
-			if c.ChatMember().Sender.ID == admin.User.ID {
-				return nil
-			}
-		}
-		//todo обработка ботов
-		return next(c)
-	}
 }
