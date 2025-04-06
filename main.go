@@ -17,7 +17,6 @@ func init() {
 		log.Fatalf("godotenv.Load: %s", err)
 		return
 	}
-	waitingApprove = make(map[int64]bool)
 }
 
 const answerTimeout = 30 * time.Second
@@ -27,7 +26,7 @@ const (
 	answerOk   = "no"
 )
 
-var waitingApprove map[int64]bool
+var waitList Waitlist
 
 func main() {
 	t, ok := os.LookupEnv("BOT_TOKEN")
@@ -60,6 +59,7 @@ func main() {
 	bot.Handle(tele.OnText, removeNotApprovedMessages)
 
 	sendStartupMessage(ok, err, bot)
+	waitList = NewWaitlist()
 
 	bot.Start()
 
@@ -83,7 +83,7 @@ func sendStartupMessage(ok bool, err error, bot *tele.Bot) {
 
 func removeNotApprovedMessages(c tele.Context) error {
 	userID := c.Sender().ID
-	if _, ok := waitingApprove[userID]; !ok {
+	if !waitList.IsExists(userID) {
 		return nil
 	}
 	return c.Delete()
@@ -94,8 +94,8 @@ func onJoin(c tele.Context) error {
 	if err != nil {
 		return fmt.Errorf("sendCheckMessage: %w", err)
 	}
+	waitList.AddToList(c.ChatMember().NewChatMember.User.ID)
 
-	waitingApprove[c.ChatMember().NewChatMember.User.ID] = true
 	_ = time.AfterFunc(answerTimeout, func() {
 		b := c.Bot().(*tele.Bot)
 		// хак, как понять, что пользователь не ответил:
@@ -118,6 +118,7 @@ func onJoin(c tele.Context) error {
 		if err := b.Restrict(c.Chat(), member); err != nil {
 			b.OnError(fmt.Errorf("afterFunc.restrict: %w", err), c)
 		}
+		waitList.RemoveFromList(member.User.ID)
 	})
 
 	return nil
@@ -146,7 +147,7 @@ func onAnswer(c tele.Context) error {
 			return fmt.Errorf("respond: %w", err)
 		}
 	}
-	delete(waitingApprove, userToAsk)
+	waitList.RemoveFromList(userToAsk)
 	if err := c.Delete(); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
