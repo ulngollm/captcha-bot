@@ -53,8 +53,29 @@ func main() {
 
 	bot.Handle(tele.OnCallback, onAnswer)
 	bot.Handle(tele.OnChatMember, onJoin, CheckJoin)
+	bot.Handle(tele.OnText, removeNotApprovedMessages)
+
+	sendStartupMessage(ok, err, bot)
 
 	bot.Start()
+
+}
+
+func sendStartupMessage(ok bool, err error, bot *tele.Bot) {
+	id, ok := os.LookupEnv("ADMIN_ID")
+	if !ok {
+		return
+	}
+	adminID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		log.Fatalf("strconv.ParseInt: %s", err)
+		return
+	}
+	if _, err := bot.Send(tele.ChatID(adminID), "bot started"); err != nil {
+		log.Fatalf("send: %s", err)
+		return
+	}
+}
 }
 
 func onJoin(c tele.Context) error {
