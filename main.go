@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -16,6 +17,7 @@ func init() {
 		log.Fatalf("godotenv.Load: %s", err)
 		return
 	}
+	waitingApprove = make(map[int64]bool)
 }
 
 const answerTimeout = 30 * time.Second
@@ -24,6 +26,8 @@ const (
 	answerSpam = "yes"
 	answerOk   = "no"
 )
+
+var waitingApprove map[int64]bool
 
 func main() {
 	t, ok := os.LookupEnv("BOT_TOKEN")
@@ -76,6 +80,13 @@ func sendStartupMessage(ok bool, err error, bot *tele.Bot) {
 		return
 	}
 }
+
+func removeNotApprovedMessages(c tele.Context) error {
+	userID := c.Sender().ID
+	if _, ok := waitingApprove[userID]; !ok {
+		return nil
+	}
+	return c.Delete()
 }
 
 func onJoin(c tele.Context) error {
@@ -84,6 +95,7 @@ func onJoin(c tele.Context) error {
 		return fmt.Errorf("sendCheckMessage: %w", err)
 	}
 
+	waitingApprove[c.ChatMember().NewChatMember.User.ID] = true
 	_ = time.AfterFunc(answerTimeout, func() {
 		b := c.Bot().(*tele.Bot)
 		// хак, как понять, что пользователь не ответил:
@@ -134,6 +146,7 @@ func onAnswer(c tele.Context) error {
 			return fmt.Errorf("respond: %w", err)
 		}
 	}
+	delete(waitingApprove, userToAsk)
 	if err := c.Delete(); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
